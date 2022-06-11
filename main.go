@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/yuin/goldmark"
@@ -27,19 +30,10 @@ type TaskData struct {
 	Due      string `yaml:"due"`
 	Priority string `yaml:"priority"`
 	Owner    string `yaml:"owner"`
+	Notes    string
 }
 
-var example = `
-id: wk6oar4vrsa8ulybzd3bkop
-title: Create Scaled Architecture
-desc: ''
-updated: 1654893960369
-created: 1654893928677
-status: ''
-due: ''
-priority: ''
-owner: ''
-`
+
 
 const (
 	notesRoot   = "/Users/riclib/repo/notes/notes/task*.md"
@@ -47,29 +41,18 @@ const (
 )
 
 func main() {
-	var task TaskData
-	err := yaml.Unmarshal([]byte(example), &task)
-	if err != nil {
-		log.Fatal("Couldn't convert task", err)
-	}
-	err = parseDates(&task)
-	if err != nil {
-		log.Fatal("Couldn't convert task", err)
-	}
-	markdown := goldmark.New(
-		goldmark.WithExtensions(
-			meta.Meta,
-		),
-	)
+	
 
 	matches, err := filepath.Glob(notesRoot)
 	if err != nil {
 		log.Fatal("Couldn't list files", err)
 	}
 	for _, match := range matches {
-		if err := printTitles(markdown, match); err != nil {
+		task, err := getTask(match)
+		if err != nil {
 			log.Println("couldn't parse file", "file", match, "error", err)
 		}
+		fmt.Println(task)
 	}
 
 }
@@ -91,6 +74,68 @@ func EpochToTimeStr(date string) string {
 	}
 	return time.Unix(t/1000, 0).Format("2006-01-02")
 }
+
+func getTask( path string) (TaskData, error) {
+	var task TaskData
+
+	file, err := os.Open(path)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer file.Close()
+
+    scanner := bufio.NewScanner(file)
+
+	// Read and Check first Line
+	_, found := readUntilSeparator(scanner)
+	if !found {
+		return  task, errors.New("File doesn't start with ---")
+	}
+
+	//Read Metadata
+	metadata, found := readUntilSeparator(scanner)
+	if !found {
+		return  task, errors.New("Couldn't find metadata")
+	}
+	err = yaml.Unmarshal([]byte(metadata), &task)
+	if err != nil {
+		return  task, errors.New("Couldn't unmarshall task")
+	}
+	err = parseDates(&task)
+	if err != nil {
+		return  task, errors.New("Couldn't parse dates")
+	}
+
+	task.Notes = readUntil10k(scanner)
+	return task, nil
+}
+
+// reads the file data until the next separator
+// returns false if separator wasn't found
+func readUntilSeparator(scanner *bufio.Scanner) (string, bool) {
+	text := ""
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.TrimSpace(line) == "---" {
+			return text, true
+		}
+		text = text + line + "\n"
+	}
+	return "", false
+}
+
+func readUntil10k(scanner *bufio.Scanner) (string) {
+	text := ""
+	for scanner.Scan() {
+		line := scanner.Text()
+		if len(line) + len(text) > 10000 {
+			break
+		}
+		text = text + line + "\n"
+	}
+	return text
+}
+
 
 func printTitles(markdown goldmark.Markdown, path string) error {
 
