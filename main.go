@@ -36,11 +36,7 @@ const (
 )
 
 func main() {
-	conn, err := sqlite.OpenConn(":memory:", sqlite.OpenReadWrite)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
+
 
 	matches, err := filepath.Glob(notesRoot)
 	if err != nil {
