@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"errors"
+	"fmt"
 	"log"
 	"net/url"
 	"os"
@@ -13,7 +14,7 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v2"
-	
+	"zombiezen.com/go/sqlite"
 )
 
 type TaskData struct {
@@ -37,6 +38,7 @@ const (
 
 func main() {
 
+	start := time.Now()
 
 	matches, err := filepath.Glob(notesRoot)
 	if err != nil {
@@ -62,8 +64,34 @@ func main() {
 			}
 
 			// fmt.Println(url)
-			// time.Sleep(5 * time.Second)
 		}
+	}
+	time.Sleep(2 * time.Second)
+
+	var timeFloat float64
+	timeFloat = float64(start.UnixMilli()) / 1000
+
+	// Open an in-memory database.
+	conn, err := sqlite.OpenConn("/Users/riclib/Library/Group Containers/JLMPQHK86H.com.culturedcode.ThingsMac/Things Database.thingsdatabase/main.sqlite", sqlite.OpenReadOnly)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conn.Close()
+
+	// Execute a query.
+	stmt := conn.Prep("SELECT uuid, title from TMTask WHERE userModificationDate >= $modDate order by userModificationDate DESC;")
+	stmt.SetFloat("$modDate", timeFloat)
+
+	for {
+		if hasRow, err := stmt.Step(); err != nil {
+			// ... handle error
+		} else if !hasRow {
+			break
+		}
+		uid := stmt.GetText("uuid")
+		title := stmt.GetText("title")
+		// ... use foo
+		fmt.Println(uid, ": ", title)
 	}
 
 }
