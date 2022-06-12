@@ -4,6 +4,7 @@ go 1.18
 
 require (
 	github.com/fsnotify/fsnotify v1.5.4
+	github.com/natefinch/atomic v1.0.1
 	gopkg.in/yaml.v2 v2.3.0
 	zombiezen.com/go/sqlite v0.9.3
 )

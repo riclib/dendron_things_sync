@@ -1,8 +1,9 @@
 package main
 
 import (
-	"fmt"
 	"log"
+	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -13,8 +14,19 @@ var ChangedFiles map[string]bool = make(map[string]bool)
 var ChangedFilesMutex sync.Mutex
 
 //if the conditions are met, execute the shell script
+func InitialSync() {
+	matches, err := filepath.Glob(dendronDault + "task*.md")
+	if err != nil {
+		log.Fatal("couldn't open dendron vault")
+	}
+	for _, file := range matches {
+		ChangedFiles[file] = true
+	}
+	runSync()
+}
+
 func runSync() {
-	log.Println("Quieted down")
+	log.Println("Running Sync")
 	log.Println(ChangedFiles)
 	ChangedFilesMutex.Lock()
 	filesToProcess := ChangedFiles
@@ -39,27 +51,37 @@ func runSync() {
 	}
 	waitforThings := 0.1
 	for _, task := range syncedTasks {
-		var found bool
-		var id string
-		for waitforThings < MaxWaitForThingsSecs {
-			found, id = getThingsId(task.Title, task.ID)
-			if found {
-				break
-			} else if waitforThings < MaxWaitForThingsSecs {
-				time.Sleep(time.Duration(waitforThings * float64(time.Second)))
-				log.Println("Waited", time.Duration(waitforThings))
-				waitforThings *= 2
+		if task.ThingsID == "" {
+
+			var found bool
+			var id string
+			//		var updated int64
+			for waitforThings < MaxWaitForThingsSecs {
+				found, id, _ = getThingsId(task.Title, task.ID)
+				if found {
+					break
+				} else if waitforThings < MaxWaitForThingsSecs {
+					time.Sleep(time.Duration(waitforThings * float64(time.Second)))
+					log.Println("Waited", time.Duration(waitforThings))
+					waitforThings *= 2
+				}
+			}
+			task.ThingsID = id
+			err := putTask(task)
+			if err != nil {
+				log.Println("failed to update task", task.ID, task.ThingsID, task.Title, err)
+
+			} else {
+				log.Println("updated task", task.ID, task.ThingsID, task.Title)
 			}
 		}
-		task.ThingsID = id
-		log.Println("found task", task.ID, task.ThingsID, task.Title)
 	}
 
 	//drain changes made by us
 	ChangedFilesMutex.Lock()
 	for _, t := range syncedTasks {
 		found, _ := ChangedFiles[t.Filepath]
-		if found{
+		if found {
 			log.Println("removing notification for", t.Filepath)
 		}
 		delete(ChangedFiles, t.Filepath)
@@ -69,13 +91,30 @@ func runSync() {
 
 }
 
+func getUpdateTimeOfTask(task TaskData) int64 {
+	switch v := task.Updated.(type) {
+	case int:
+		return int64(v)
+	case string:
+		intVar, err := strconv.ParseInt(v, 0, 64)
+		if err != nil {
+			return -1
+		} else {
+			return intVar
+		}
+	default:
+		log.Printf("don't know about type %T!\n", v)
+		return -1
+	}
+}
+
 //handle folder files changed event
 func watchFiles(watcher *fsnotify.Watcher, ch chan int64) {
 	for {
 		select {
 		case ev := <-watcher.Events:
 			{
-				fmt.Println("notified on ", ev.Name)
+
 				ChangedFilesMutex.Lock()
 				ChangedFiles[ev.Name] = true
 				ChangedFilesMutex.Unlock()

@@ -1,75 +1,69 @@
 package main
 
 import (
-	"bufio"
+	"bytes"
+	"crypto/md5"
 	"errors"
 	"log"
+	"net/url"
 	"os"
-	"strings"
 
+	"github.com/natefinch/atomic"
 	"gopkg.in/yaml.v2"
 )
+
+var ourChanges map[string][16]byte = make(map[string][16]byte)
+var sep = []byte("---\n")
 
 func getTask(path string) (t TaskData, wasTask bool, err error) {
 	var task TaskData
 
-	file, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
-		log.Fatal(err)
+		return task, false, errors.New("couldn't read file")
 	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-
-	// Read and Check first Line
-	_, found := readUntilSeparator(scanner)
-	if !found {
-		return task, true, errors.New("file doesn't start with ---")
+	hash := md5.Sum(data)
+	if ourChanges[path] == hash {
+		log.Println("ignoring our own change", path)
+		return task, false, nil
 	}
 
-	//Read Metadata
-	metadata, found := readUntilSeparator(scanner)
-	if !found {
-		return task, false, errors.New("couldn't find metadata")
+	parts := bytes.SplitAfterN(data, sep, 4)
+	if len(parts) != 3 {
+		return t, false, errors.New("note without metadata")
 	}
-	err = yaml.Unmarshal([]byte(metadata), &task)
+	metadata := parts[1]
+	task.Contents = parts[2]
+
+	err = yaml.Unmarshal(metadata, &task)
 	if err != nil {
 		return task, false, errors.New("couldn't unmarshall task")
 	}
 	if task.Status == nil { //not a task
 		return task, false, nil
 	}
-	err = parseDates(&task)
-	if err != nil {
-		return task, false, errors.New("couldn't parse dates")
+	task.Filepath = path
+	thingsFooter := "\n" + string(sep) + "dendron_id: " + task.ID + "\n" + "filepath: " + url.PathEscape("file:/" + task.Filepath) + "\n"
+	thingsNotesSpaceLeft := 10000 - len(thingsFooter)
+	if thingsNotesSpaceLeft >= len(task.Contents) {
+		task.ThingsNotes = string(task.Contents) + thingsFooter  
+	} else {
+		task.ThingsNotes = task.ThingsNotes + string(task.Contents[0:thingsNotesSpaceLeft-1]) + thingsFooter
 	}
-	task.Notes = "dendron_id: " + task.ID + "\n" + "filepath: file:" + task.Filepath + "\n"
-	task.Notes = task.Notes + readUntilMaxSize(scanner, 10000-len(task.Notes))
 	return task, true, nil
 }
 
-// reads the file data until the next separator
-// returns false if separator wasn't found
-func readUntilSeparator(scanner *bufio.Scanner) (string, bool) {
-	text := ""
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.TrimSpace(line) == "---" {
-			return text, true
-		}
-		text = text + line + "\n"
+func putTask(task TaskData) error {
+	result := sep
+	header, err := yaml.Marshal(task)
+	if err != nil {
+		return err
 	}
-	return "", false
-}
-
-func readUntilMaxSize(scanner *bufio.Scanner, maxsize int) string {
-	text := ""
-	for scanner.Scan() {
-		line := scanner.Text()
-		if len(line)+len(text) > maxsize {
-			break
-		}
-		text = text + line + "\n"
-	}
-	return text
+	result = append(result, header...)
+	//	result = append(result, []byte("\n")...)
+	result = append(result, sep...)
+	result = append(result, task.Contents...)
+	err = atomic.WriteFile(task.Filepath, bytes.NewReader(result))
+	ourChanges[task.Filepath] = md5.Sum(result)
+	return err
 }

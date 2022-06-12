@@ -1,19 +1,22 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"strconv"
 	"time"
 )
 
-func parseDates(task *TaskData) error {
-	task.Updated = EpochToTimeStr(task.Updated)
-	task.Created = EpochToTimeStr(task.Created)
-	task.Due = EpochToTimeStr(task.Due)
-	return nil
-}
-
-func EpochToTimeStr(date string) string {
+func EpochToTimeStr(d interface{}) string {
+	var date string
+	switch v := d.(type) {
+	case int:
+		date = fmt.Sprint(v)
+	case string:
+		date = v
+	default:
+		log.Printf("don't know about type %T!\n", v)
+	}
 	if date == "" {
 		return ""
 	}
@@ -23,4 +26,3 @@ func EpochToTimeStr(date string) string {
 	}
 	return time.Unix(t/1000, 0).Format("2006-01-02")
 }
-

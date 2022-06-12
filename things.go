@@ -1,8 +1,8 @@
 package main
 
 import (
-	"fmt"
 	"log"
+	"math"
 	"net/url"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +10,7 @@ import (
 
 	"zombiezen.com/go/sqlite"
 )
+
 var conn *sqlite.Conn = nil
 
 func SyncAllToThings() {
@@ -23,7 +24,7 @@ func SyncAllToThings() {
 		SyncToThings(match)
 	}
 }
-func SyncToThings(filepath string) (synced bool, task TaskData){
+func SyncToThings(filepath string) (synced bool, task TaskData) {
 
 	task, wasTask, err := getTask(filepath)
 	if err != nil {
@@ -32,16 +33,20 @@ func SyncToThings(filepath string) (synced bool, task TaskData){
 
 	if wasTask {
 		task.Filepath = filepath
-		url, err := genThingsURL(task)
-		// fmt.Println(url)
-		if err != nil {
-			log.Println("couldn't generate things url", "err", err)
-		}
-		cmd := exec.Command("open", url)
-		// fmt.Println(cmd.String())
-		err = cmd.Run()
-		if err != nil {
-			panic(err)
+
+		_, _, thingsUpdateTime := getThingsId(task.Title, task.ID)
+		dendronUpdatedTime := getUpdateTimeOfTask(task)
+		if dendronUpdatedTime > thingsUpdateTime {
+			url, err := genThingsURL(task)
+			// fmt.Println(url)
+			if err != nil {
+				log.Println("couldn't generate things url", "err", err)
+			}
+			cmd := exec.Command("open", url)
+			err = cmd.Run()
+			if err != nil {
+				panic(err)
+			}
 		}
 		return true, task
 	}
@@ -79,16 +84,14 @@ func getThingsNews(start time.Time) {
 		} else if !hasRow {
 			break
 		}
-		uid := stmt.GetText("uuid")
-		title := stmt.GetText("title")
-		// ... use foo
-		fmt.Println(uid, ": ", title)
+		//		uid := stmt.GetText("uuid")
+		//		title := stmt.GetText("title")
 	}
 
 }
 
-func getThingsId(title, dendronId string) (found bool, id string) {
-	stmt := conn.Prep("SELECT uuid from TMTask WHERE title >= $title order by userModificationDate DESC;")
+func getThingsId(title, dendronId string) (found bool, id string, updated int64) {
+	stmt := conn.Prep("SELECT uuid, userModificationDate from TMTask WHERE trashed = 0 and title = $title order by userModificationDate DESC;")
 	stmt.SetText("$title", title)
 
 	for {
@@ -98,16 +101,18 @@ func getThingsId(title, dendronId string) (found bool, id string) {
 			break
 		}
 		id := stmt.GetText("uuid")
-		return true, id
+		updatedSeconds := stmt.GetFloat("userModificationDate")
+		updated = int64(math.Floor(1000 * updatedSeconds))
+		return true, id, updated
 	}
-	return false, ""
+	return false, "", -1
 }
 
 func genThingsURL(task TaskData) (string, error) {
 	path := ""
 	path = addURLencoded(path, "tags", "dendron")
 	path = addURLencoded(path, "title", task.Title)
-	path = addURLencoded(path, "notes", task.Notes)
+	path = addURLencoded(path, "notes", task.ThingsNotes)
 	path = addURLencoded(path, "auth-token", thingsToken)
 	if *task.Status == "x" {
 		path = addURLencoded(path, "completed", "true")
@@ -115,12 +120,18 @@ func genThingsURL(task TaskData) (string, error) {
 	if *task.Status == "-" {
 		path = addURLencoded(path, "canceled", "true")
 	}
-	path = addURLencoded(path, "creation-date", task.Created)
-	path = addURLencoded(path, "deadline", task.Due)
+	path = addURLencoded(path, "creation-date", EpochToTimeStr(task.Created))
+	path = addURLencoded(path, "deadline", EpochToTimeStr(task.Due))
+	path = addURLencoded(path, "reveal", "false")
+
 	// Calback URLs were not reliable
 	//	path = addURLencoded(path, "x-success", "shortcuts://name=pingback&file="+task.Filepath)
-	return "things:///add?" + path, nil
-
+	if task.ThingsID == "" {
+		return "things:///add?" + path, nil
+	} else {
+		path = addURLencoded(path, "id", task.ThingsID)
+		return "things:///update?" + path, nil
+	}
 }
 
 func addURLencoded(path, param, value string) string {

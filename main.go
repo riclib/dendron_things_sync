@@ -6,25 +6,27 @@ import (
 )
 
 type TaskData struct {
-	ID       string  `yaml:"id"`
-	Title    string  `yaml:"title"`
-	Desc     string  `yaml:"desc"`
-	Updated  string  `yaml:"updated"`
-	Created  string  `yaml:"created"`
-	Status   *string `yaml:"status"`
-	Due      string  `yaml:"due"`
-	Priority string  `yaml:"priority"`
-	Owner    string  `yaml:"owner"`
-	ThingsID string  `yaml:"things_id`
-	Notes    string
-	Filepath string
+	ID          string      `yaml:"id"`
+	Title       string      `yaml:"title"`
+	Desc        string      `yaml:"desc"`
+	Updated     interface{} `yaml:"updated"`
+	Created     interface{} `yaml:"created"`
+	Status      *string     `yaml:"status"`
+	Due         interface{} `yaml:"due"`
+	Priority    string      `yaml:"priority"`
+	Owner       string      `yaml:"owner"`
+	ThingsID    string      `yaml:"_things_id"`
+	ThingsNotes string      `yaml:"-"`
+	Contents    []byte      `yaml:"-"`
+	Filepath    string      `yaml:"-"`
+	TODO        string      `yaml:"TODO"`
 }
 
 const (
 	dendronDault         = "/Users/riclib/repo/notes/notes/"
 	notesRoot            = "/Users/riclib/repo/notes/notes/task*.md"
 	thingsToken          = "vnsjaoUjTxmehnAgGHGDqg"
-	WaitTimeSecs         = 10
+	WaitTimeSecs         = 3
 	MaxWaitForThingsSecs = 10.0
 )
 
@@ -39,5 +41,6 @@ func main() {
 	for _, f := range dendronFilters {
 		filterRegexes = append(filterRegexes, *regexp.MustCompile(f))
 	}
+	InitialSync()
 	Watcher()
 }
